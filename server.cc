@@ -35,7 +35,7 @@ int main()
 	int sock = socket(PF_INET, SOCK_STREAM, 0);
 	if(sock < 0)
 	{
-		cout << "Error: Cannot open socket" << endl;
+		cout << "[ERR] Cannot open socket" << endl;
 		return 0;
 	}
 	bzero((char *) &serv_addr, sizeof(serv_addr));
@@ -53,8 +53,10 @@ int main()
 	while(1)
 	{
 		unsigned int clilen = sizeof(cli_addr);
+		char hbuf[1024], sbuf[1024];
 		int newsock = accept(sock, (struct sockaddr *) &cli_addr, &clilen);
-		cout << "[LOG] Connection accepted: FD " << newsock << endl;
+		getnameinfo((struct sockaddr *)&cli_addr, clilen, hbuf, sizeof(hbuf), sbuf, sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
+		cout << "[LOG] Connection accepted: " << hbuf << "/" << sbuf << endl;
 		int child;
 		if((child = fork()) < 0)
 		{
@@ -63,6 +65,7 @@ int main()
 		}
 		else if(child == 0) 
 		{
+			signal(SIGCHLD, SIG_DFL);
 			close(sock);
 			fd_set fds;
 			FD_ZERO(&fds);
@@ -83,13 +86,15 @@ int main()
 				map<string, string>env;
 				int receive = read(newsock, packet, 1024 * 1024);
 				cout << "[LOG] Received packet:" << receive << endl;
-				cout << packet << endl;
 				string tok = read_until(packet, " ", cursor);
 				env["REQUEST_METHOD"] = tok;
 				tok = read_until(packet, "? ", cursor);
 				env["SCRIPT_NAME"] = tok;
 				env["HTTP_CONNECTION"] = "keep-alive";
 				env["REQUEST_SCHEME"] = "http";
+				env["AUTH_TYPE"] = "I'm the boss!!";
+				env["REMOTE_USER"] = "??";
+				env["REMOTE_IDENT"] = "??";
 				if(packet[cursor - 1] == '?')
 				{
 					tok = read_until(packet, " ", cursor);
@@ -104,7 +109,6 @@ int main()
 				env["CONTENT_LENGTH"] = "0";
 				env["SERVER_SOFTWARE"] = "fucker";
 				while(packet[cursor] == '\r' || packet[cursor] == '\n')cursor++;
-				char hbuf[1024], sbuf[1024];
 				getnameinfo((struct sockaddr *)&cli_addr, clilen, hbuf, sizeof(hbuf), sbuf, sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
 				env["REMOTE_ADDR"] = hbuf;
 				env["REMOTE_PORT"] = sbuf;
@@ -147,37 +151,41 @@ int main()
 				if(stat(file.c_str(), &st) != 0)exist = false;
 				else 
 				{
-					if(!fork())
+					string type = get_file_type(file);
+					if(type == "cgi")
 					{
-						clearenv();
-						for(auto iter = env.begin();; iter++)
+						if(!fork())
 						{
-							if(iter == env.end())break;
-							setenv((*iter).first.c_str(), (*iter).second.c_str(), 1);
+							clearenv();
+							for(auto iter = env.begin();; iter++)
+							{
+								if(iter == env.end())break;
+								setenv((*iter).first.c_str(), (*iter).second.c_str(), 1);
+							}
+							close(p[0]);
+							dup2(p[1], 1);
+							execl(file.c_str(), file.c_str(), NULL);
+							exit(0);
 						}
-						close(p[0]);
-						dup2(p[1], 1);
-						execl(file.c_str(), file.c_str(), NULL);
-						exit(0);
+						else 
+						{
+							close(p[1]);
+							wait(NULL);
+							read(p[0], ret, 1024 * 1024);
+							close(p[0]);
+						}
 					}
-					else 
+					else
 					{
-						close(p[1]);
-						read(p[0], ret, 1024 * 1024);
-						close(p[0]);
+						fstream fin(file.c_str());
+						string input;
+						input.assign(istreambuf_iterator<char>(fin), istreambuf_iterator<char>());
+						strcpy(ret, input.c_str());
 					}
 				}
 				string packet_header;
-				if(exist)
-				{
-					packet_header += "HTTP/1.1 200 OK\r\n";
-					cout << "200 OK" << endl;
-				}
-				else
-				{
-					packet_header += "HTTP/1.1 404 NF\r\n";
-					cout << "404 NF" << endl;
-				}
+				if(exist)packet_header += "HTTP/1.1 200 OK\r\n";
+				else packet_header += "HTTP/1.1 404 NF\r\n";
 				packet_header += "Server: fucker\r\n";
 				packet_header += "Date: now\r\n";
 				packet_header += "Connection: keep-alive\r\n";
@@ -189,7 +197,7 @@ int main()
 				s += "\r\n";
 				write(newsock, s.c_str(), s.size());
 				cout << "[LOG] Sent packet: " << s.size() << endl;
-				cout << s << endl;
+				cout << "[LOG] " << (exist? "200 OK": "404 NF") << endl;
 
 				close(newsock);
 				return 0;
