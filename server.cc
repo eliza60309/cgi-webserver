@@ -1,8 +1,10 @@
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <arpa/inet.h>
 #include <map>
 #include <unistd.h>
@@ -20,10 +22,12 @@ using namespace std;
 string get_file_type(string file);
 string read_until(char *arr, const char *terminal, int &cursor);
 
+int childdead = false;
 void waitfor(int sig)
 {
 	int wstat;
 	int pid = wait(&wstat);
+	childdead = true;
 }
 
 
@@ -146,17 +150,36 @@ int main()
 				env["SCRIPT_FILENAME"] = string(pwd) + '/' + file;
 				env["DOCUMENT_ROOT"] = string(pwd);
 				int exist = true;
-				char ret[1024 * 1024] = {};
 				struct stat st;
-				if(stat(file.c_str(), &st) != 0)exist = false;
+				string response;
+				if(stat(file.c_str(), &st) != 0)
+				{
+					cout << "[LOG] 404 FUCK OFF" << endl;
+					exist = false;
+					response += "HTTP/1.1 404 FUCK OFF\r\n";
+					response += "Server: fucker\r\n";
+					response += "Date: now\r\n";
+					response += "Connection: keep-alive\r\n";
+					response += "Keep-Alive: timeout=20\r\n";
+					response += "Content-type: text/html\r\n\r\n<img src=\"http://skyhertz.me/404NF.JPG\">";
+					write(newsock, response.c_str(), response.size());
+				}
 				else 
 				{
+					cout << "[LOG] 200 FUCK YEAH" << endl;
+					response += "HTTP/1.1 200 FUCK YEAH\r\n";
+					response += "Server: fucker\r\n";
+					response += "Date: now\r\n";
+					response += "Connection: keep-alive\r\n";
+					response += "Keep-Alive: timeout=20\r\n";
 					string type = get_file_type(file);
 					if(type == "cgi")
 					{
+						childdead = false;
+						signal(SIGCHLD, waitfor);
 						if(!fork())
 						{
-							clearenv();
+						//	clearenv();
 							for(auto iter = env.begin();; iter++)
 							{
 								if(iter == env.end())break;
@@ -170,34 +193,38 @@ int main()
 						else 
 						{
 							close(p[1]);
-							wait(NULL);
-							read(p[0], ret, 1024 * 1024);
+							//wait(NULL);
+							write(newsock, response.c_str(), response.size());
+							cout << "[LOG] Sent packet: " << response.size() << endl;
+							while(!childdead)
+							{
+								char ret[1024 * 1024] = {};
+								int size = read(p[0], ret, 1024 * 1024);
+								string s = ret;
+								write(newsock, s.c_str(), s.size());
+								cout << "[LOG] Sent packet: " << s.size() << endl;
+							}
 							close(p[0]);
 						}
 					}
 					else
 					{
+						response += "Content-type: text/html\r\n\r\n";
 						fstream fin(file.c_str());
 						string input;
 						input.assign(istreambuf_iterator<char>(fin), istreambuf_iterator<char>());
-						strcpy(ret, input.c_str());
+						response += input;
+						write(newsock, response.c_str(), response.size());
+						cout << "[LOG] Sent packet: " << response.size() << endl;
+
 					}
 				}
-				string packet_header;
-				if(exist)packet_header += "HTTP/1.1 200 OK\r\n";
-				else packet_header += "HTTP/1.1 404 NF\r\n";
-				packet_header += "Server: fucker\r\n";
-				packet_header += "Date: now\r\n";
-				packet_header += "Connection: keep-alive\r\n";
-				packet_header += "Keep-Alive: timeout=20\r\n";
-				string s;
-				s += packet_header;
-				if(exist)s += ret;
-				else s += "Content-type: text/html\r\n\r\n<img src=\"http://skyhertz.me/404NF.JPG\">";
-				s += "\r\n";
-				write(newsock, s.c_str(), s.size());
-				cout << "[LOG] Sent packet: " << s.size() << endl;
-				cout << "[LOG] " << (exist? "200 OK": "404 NF") << endl;
+				//string s;
+				//s += packet_header;
+				//if(exist)s += ret;
+				//s += "\r\n";
+				//for(int i = 0; i < 5; i++)write(newsock, s.c_str(), s.size());
+				//cout << "[LOG] Sent packet: " << s.size() << endl;
 
 				close(newsock);
 				return 0;
