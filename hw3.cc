@@ -17,6 +17,7 @@
 #define F_READING 1
 #define F_WRITING 2
 #define F_DONE 3
+#define F_RDONE 4
 
 using namespace std;
 
@@ -24,6 +25,7 @@ string read_until(const char *arr, const char *terminal, int &cursor);
 string nslookup(string s);
 int getint(const char *c);
 string readline(int sock);
+int dump(string s);
 
 class request
 {
@@ -41,9 +43,8 @@ int main()
 {
 	cout << "Content-Type: text/html\r\n\r\n";
 	string query = getenv("QUERY_STRING");
-	//string query = "h1=nplinux3.cs.nctu.edu.tw&p1=9487&f1=t1.txt&h2=&p2=&f2=&h3=&p3=&f3=&h4=&p4=&f4=&h5=&p5=&f5=";
+	//string query = "h1=npbsd2.cs.nctu.edu.tw&p1=1257&f1=t1.txt&h2=npbsd2.cs.nctu.edu.tw&p2=1257&f2=t2.txt&h3=&p3=&f3=&h4=&p4=&f4=&h5=&p5=&f5=";
 	map<string, string> args;
-	cout << query << "<br>";
 	int cursor = 0;
 	while(1)
 	{
@@ -59,6 +60,14 @@ int main()
 	number.push_back("3");
 	number.push_back("4");
 	number.push_back("5");
+	cout << "<html>" << endl;
+	cout << "<head>" << endl;
+	cout << "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=big5\"/>" << endl;
+	cout << "<title>Network Programming Homework 3</title>" << endl;
+	cout << "</head>" << endl;
+	cout << "<body bgcolor=#336699>" << endl;
+	cout << "<font face=\"Courier New\" size=2 color=#FFFF99>" << endl;
+	cout << "<table width=\"800\" border=\"1\">" << endl;
 	for(int i = 0; i < number.size(); i++)
 	{
 		if(args["h" + number[i]].size() != 0 && args["p" + number[i]].size() != 0 && args["f" + number[i]].size() != 0)
@@ -89,8 +98,10 @@ int main()
 	FD_ZERO(&wfds);
 	FD_ZERO(&rs);
 	FD_ZERO(&ws);
+	cout << "<tr>" << endl;
 	for(int i = 0; i < request_vector.size(); i++)
 	{
+		cout << "<td>" << endl;
 		struct sockaddr_in cli_addr, serv_addr;
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
@@ -106,14 +117,29 @@ int main()
 		}
 		FD_SET(request_vector[i].fd, &rs);
 		FD_SET(request_vector[i].fd, &ws);
+		cout << request_vector[i].host << endl;
+		cout << "</td>" << endl;
 	}
+	cout << "<tr>" << endl;
+	cout << "</tr>" << endl;
+	for(int i = 0; i < request_vector.size(); i++)
+	{
+		cout << "<td valign=\"top\" id=\"" << "m" << number[i] << "\">" << endl;
+		cout << "</td>" << endl;
+	}
+	cout << "</tr></table>" << endl;
 	rfds = rs;
 	wfds = ws;
-	int f = false;
 	int nfds = FD_SETSIZE;
 	int connection_cnt = request_vector.size();
-	while(connection_cnt > 0)
+	int time_out = 100000;
+	vector<int>timeout(request_vector.size(), 0);
+	vector<int>f(request_vector.size(), 0);
+	while(connection_cnt > 0 || time_out == 0)
 	{
+		time_out--;
+		sleep(1);
+		//cout << connection_cnt << endl;
 		memcpy(&rfds, &rs, sizeof(rfds));
 		memcpy(&wfds, &ws, sizeof(wfds));
 		if(select(nfds, &rfds, &wfds, NULL, NULL) < 0)
@@ -127,7 +153,34 @@ int main()
 		}
 		for(int i = 0; i < request_vector.size(); i++)
 		{
-			//cout << "STATE " << request_vector[i].state << FD_ISSET(request_vector[i].fd, &wfds) << FD_ISSET(request_vector[i].fd, &rfds) << endl;
+			//cout << i << request_vector[i].state << "<br>"<< endl;
+			//for(int j = 1; j <= 100000; j++);
+			//sleep(1);
+			if(request_vector[i].state == F_DONE)continue;
+			/*if(request_vector[i].state == F_DONE)
+			{
+				char c[1024 * 1024] = {};
+				int flag = true;
+				int ans = read(request_vector[i].fd, c, 1024 * 1024);
+				string inst = c;
+				if(ans)
+				{
+					int cursor = 0;
+					while(cursor != inst.size())
+					{
+						cout << "<script>document.all['m" << number[i] << "'].innerHTML +=\"";
+						string s = read_until(inst.c_str(), "\n", cursor);
+						dump(s);
+						if(inst.find("% ") != string::npos)cout << "\";</script>" << endl;
+						//if(inst[inst.size() - 1] == ' ' && inst[inst.size() - 2] == '%')cout << "\";</script>" << endl;
+						else cout << "<br>\";</script>" << endl;
+					//	cout << "inst:" << inst[inst.size() - 1] << inst[inst.size() - 2] << endl;
+					}
+				}
+				request_vector[i].state = F_RDONE;
+				cout << "READY DONE" << endl;
+				connection_cnt--;
+			}*/
 			if(request_vector[i].state == F_CONNECTING)
 			{
 //				cout << "connecting...<br>" << endl;
@@ -152,40 +205,58 @@ int main()
 					int cursor = 0;
 					while(cursor != inst.size())
 					{
-						cout << read_until(inst.c_str(), "\r\n", cursor);
+						cout << "<script>document.all['m" << number[i] << "'].innerHTML +=\"";
+						string s = read_until(inst.c_str(), "\n", cursor);
+						dump(s);
+						if(inst.find("% ") != string::npos)cout << "\";</script>" << endl;
+						//if(inst[inst.size() - 1] == ' ' && inst[inst.size() - 2] == '%')cout << "\";</script>" << endl;
+						else cout << "<br>\";</script>" << endl;
 					//	cout << "inst:" << inst[inst.size() - 1] << inst[inst.size() - 2] << endl;
 					}
 				}
-				if(inst[inst.size() - 1] == ' ' && inst[inst.size() - 2] == '%')
+				else timeout[i]++;
+				if(timeout[i] == 1000)
 				{
 					request_vector[i].state = F_WRITING;
 					FD_CLR(request_vector[i].fd, &rs);
 					FD_SET(request_vector[i].fd, &ws);
-					if(f)
-					{
-						request_vector[i].state = F_DONE;
-						connection_cnt--;
-						FD_CLR(request_vector[i].fd, &ws);
-						cout << "DONE";
-					}
+					cout << "<script>document.all['m" << number[i] << "'].innerHTML +=\"timeout<br>\";</script>";
 				}
-				else cout << "<br>" << endl;
-
+				//if(inst.size() >= 2 && inst[inst.size() - 1] == ' ' && inst[inst.size() - 2] == '%')
+				if(inst.find("% ") != string::npos)//cout << "\";</script>" << endl;
+				{
+					request_vector[i].state = F_WRITING;
+					FD_CLR(request_vector[i].fd, &rs);
+					FD_SET(request_vector[i].fd, &ws);
+				}
+				if(f[i])
+				{
+					//cout << "DONE: " << i << endl;
+					request_vector[i].state = F_DONE;
+					FD_CLR(request_vector[i].fd, &ws);
+					FD_CLR(request_vector[i].fd, &rs);
+					//FD_CLR(request_vector[i].fd, &rfds);
+					//FD_CLR(request_vector[i].fd, &wfds);
+				}
 			}
 			else if(request_vector[i].state == F_WRITING && FD_ISSET(request_vector[i].fd, &wfds))
 			{
 //				cout << "writing...<br>" << endl;
 				string input = read_until(request_vector[i].input.c_str(), "\n", request_vector[i].cursor);
 				input += '\n';
-				cout << input << "<br>" << endl;
+				cout << "<script>document.all['m" << number[i] << "'].innerHTML += \"";
+				if(dump(input))f[i] = true;
+				cout << "\";</script>" << endl;
 				int n = write(request_vector[i].fd, input.c_str(), input.size());
 				FD_CLR(request_vector[i].fd, &ws);
 				FD_SET(request_vector[i].fd, &rs);
-				if(request_vector[i].cursor == request_vector[i].input.size())f = true;
-				else request_vector[i].state = F_READING;
+				if(request_vector[i].cursor == request_vector[i].input.size())f[i] = true;
+				request_vector[i].state = F_READING;
+				timeout[i] = 0;
 			}
 		}
 	}
+	cout << "</font></body></html>" << endl;
 	return 0;
 }
 
@@ -262,4 +333,19 @@ string readline(int sock)
 		}
 		else if(ret == -1 && errno != EINTR)return "ERROR IN STRING";
 	}
+}
+
+int dump(string s)
+{
+	int flag = false;
+	for(int i = 0; i < s.size(); i++)
+	{
+		if(i >= 3 && s[i - 3] == 'e' && s[i - 2] == 'x' && s[i - 1] == 'i' && s[i] == 't')flag = true;
+		if(s[i] == '\n')cout << "<br>";
+		else if(s[i] == '\"')cout << "\\\"";
+		else if(s[i] == '\'')cout << "\\\'";
+		else if(s[i] == '\r');
+		else cout << s[i];
+	}
+	return flag;
 }
